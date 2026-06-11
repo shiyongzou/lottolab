@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>彩数实验室 · LottoLab</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body class="game-ssq">
+<div class="glow glow-red"></div>
+<div class="glow glow-gold"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">彩</div>
+    <div class="brand-text">
+      <h1>彩数实验室</h1>
+      <span>LOTTO LAB · 本地彩票数据工作台</span>
+    </div>
+  </div>
+  <div class="game-switch" id="gameSwitch">
+    <button data-game="ssq" class="active">双色球</button>
+    <button data-game="dlt">大乐透</button>
+  </div>
+  <div class="data-chip" id="dataChip"></div>
+  <button id="btnRefresh" class="btn-refresh hidden">↻ 更新数据 · 双脑重算</button>
+</header>
+<div class="refresh-log hidden" id="refreshLog"></div>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="hall" class="active">开奖大厅</button>
+  <button data-tab="analysis">数据分析</button>
+  <button data-tab="infer">数据推理</button>
+  <button data-tab="picker">机选工具</button>
+  <button data-tab="backtest">实证回测</button>
+  <button data-tab="checker">对奖中心</button>
+</nav>
+
+<main>
+  <section id="tab-hall" class="tab-panel active">
+    <div id="heroDraw"></div>
+    <div class="card">
+      <div class="hall-head">
+        <h3 class="card-title">近期开奖</h3>
+        <input id="issueSearch" class="issue-search" placeholder="搜任意期：期号或日期，如 2025088 / 2025-08" spellcheck="false">
+      </div>
+      <div id="drawList"></div>
+    </div>
+  </section>
+
+  <section id="tab-analysis" class="tab-panel">
+    <div class="notice" id="analysisNotice"></div>
+    <div class="scope-row hidden" id="scopeRow">
+      <span class="scope-label">统计窗口</span>
+      <div class="scope-pills" id="scopePills">
+        <button data-scope="150" class="active">近 150 期</button>
+        <button data-scope="full">全量历史</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3 class="card-title" id="freqTitleA"></h3>
+      <div class="freq-chart" id="freqChartA"></div>
+    </div>
+    <div class="card">
+      <h3 class="card-title" id="freqTitleB"></h3>
+      <div class="freq-chart freq-chart-b" id="freqChartB"></div>
+    </div>
+    <div class="card">
+      <h3 class="card-title">当前遗漏（期数）</h3>
+      <div class="omission-grid" id="omissionGrid"></div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <h3 class="card-title">奇偶形态分布</h3>
+        <div id="oddEvenChart"></div>
+      </div>
+      <div class="card">
+        <h3 class="card-title" id="sumTitle">和值走势（近 30 期）</h3>
+        <div id="sumSpark"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 class="card-title">奖池走势（近 150 期）</h3>
+      <div id="poolSpark"></div>
+    </div>
+  </section>
+
+  <section id="tab-infer" class="tab-panel">
+    <div class="notice" id="oddsStrip"></div>
+    <div class="card">
+      <div class="infer-head-row">
+        <h3 class="card-title">AI 双脑推理 · Claude × Codex</h3>
+        <div class="scope-pills" id="inferPills">
+          <button data-iwin="150" class="active">近 150 期推理</button>
+          <button data-iwin="full">全量历史推理</button>
+        </div>
+      </div>
+      <div id="aiPicks"></div>
+    </div>
+    <div class="card">
+      <h3 class="card-title">预测台账 · 开奖对照</h3>
+      <div id="ledgerBox"></div>
+    </div>
+  </section>
+
+  <section id="tab-picker" class="tab-panel">
+    <p class="strategy-note">这里是娱乐性机选（含随机成分）；两套 AI 模型基于真实数据的确定性推理在「数据推理」页。</p>
+    <div class="card">
+      <div class="strategy-pills" id="strategyPills">
+        <button data-strategy="random" class="active">完全随机</button>
+        <button data-strategy="hot">热号加权</button>
+        <button data-strategy="cold">冷号回补</button>
+        <button data-strategy="balanced">形态均衡</button>
+      </div>
+      <p class="strategy-note" id="strategyNote"></p>
+      <div class="picker-row">
+        <label class="inline-field">注数
+          <input type="number" id="pickCount" value="5" min="1" max="50">
+        </label>
+        <button id="btnGenerate" class="btn btn-primary">生成号码</button>
+        <button id="btnCopyTickets" class="btn btn-ghost">复制全部</button>
+        <button id="btnToChecker" class="btn btn-ghost">带入对奖</button>
+        <button id="btnSaveTickets" class="btn btn-ghost">存入票夹</button>
+      </div>
+    </div>
+    <div id="ticketList"></div>
+  </section>
+
+  <section id="tab-backtest" class="tab-panel">
+    <div class="bt-actions" id="btActions"></div>
+    <div id="btHard"></div>
+    <div id="btCompare"></div>
+    <div id="btCalibration"></div>
+    <div id="btCalibScore"></div>
+    <div class="grid-2">
+      <div class="card">
+        <h3 class="card-title">蒙特卡洛验证器</h3>
+        <div id="mcPanel"></div>
+      </div>
+      <div class="card">
+        <h3 class="card-title">已证伪陈列室</h3>
+        <div id="debunkPanel"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 class="card-title">数据溯源与可复现性</h3>
+      <div id="provenance"></div>
+    </div>
+  </section>
+
+  <section id="tab-checker" class="tab-panel">
+    <div class="card">
+      <label class="field-label">我的投注（每行一注，前后区用 <b>+</b> 分隔；多写号码即为复式）</label>
+      <textarea id="betInput" rows="5" spellcheck="false"></textarea>
+      <div class="checker-row">
+        <label class="inline-field">开奖期号
+          <select id="issueSelect"></select>
+        </label>
+        <label class="inline-check hidden" id="addOnWrap">
+          <input type="checkbox" id="addOn"> 追加投注（每注 3 元）
+        </label>
+        <button id="btnCheck" class="btn btn-primary">立即对奖</button>
+        <button id="btnSaveBets" class="btn btn-ghost">存入票夹</button>
+      </div>
+      <div id="customDrawRow" class="hidden">
+        <input id="customDraw" placeholder="输入开奖号码，如：03 11 17 22 28 33 + 06" spellcheck="false">
+      </div>
+      <details class="adv">
+        <summary>浮动奖金估值设置（一、二等奖按实际公告为准）</summary>
+        <div id="floatInputs" class="float-inputs"></div>
+      </details>
+    </div>
+    <div id="checkResult"></div>
+    <div class="card">
+      <h3 class="card-title">我的票夹</h3>
+      <div id="walletBox"></div>
+    </div>
+    <div class="card">
+      <h3 class="card-title">奖级速查</h3>
+      <div id="prizeTable"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>本工具仅用于本地数据统计与对奖核算。彩票每期开奖相互独立、完全随机，任何历史统计都不能提高中奖概率，选号功能仅供娱乐。</p>
+  <p>理性购彩，量力而行；未满 18 周岁不得购彩。</p>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<script src="data/draws.js"></script>
+<script src="data/draws_full.js"></script>
+<script src="data/ai_picks.js"></script>
+<script src="data/backtest.js"></script>
+<script src="data/ledger.js"></script>
+<script src="js/rules.js"></script>
+<script src="js/analysis.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
