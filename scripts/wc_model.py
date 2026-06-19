@@ -25,7 +25,8 @@ MARKET_TILT = 0.6      # 市场净胜倾向 → λ 分配的强度
 DIV_FLAG = 0.20        # 模型/市场背离超过此值则标记提示（显著分歧 → 该场更难测）
 # 「大胆剧本」比分：放大实力差 + 市场进球预期，悬殊场敢报大比分（观赏向，与准确的最可能比分并列展示，确定性）
 BOLD_K = 0.0034
-BOLD_INFLATE = 1.3
+BOLD_INFLATE = 1.55    # 调高：势均场也敢报 2-1/2-2，不再缩成 1-1
+BOLD_CAP = 6.5         # 大胆比分单队进球 λ 上限，防止悬殊场爆到 8-0
 MAX_GOALS = 8          # 概率积分用到的最大进球数
 MATRIX_N = 6           # 导出给页面热力图的矩阵尺寸（0..6）
 
@@ -130,8 +131,8 @@ def bold_score(elo_home, elo_away, host=False, over_under=None):
     d = (elo_home + (HOST_ADV if host else 0)) - elo_away
     total = (over_under or 2.6) * BOLD_INFLATE + abs(d) / 300.0
     tilt = math.tanh(BOLD_K * d)
-    lh = max(0.4, total / 2 * (1 + tilt))
-    la = max(0.4, total / 2 * (1 - tilt))
+    lh = min(BOLD_CAP, max(0.4, total / 2 * (1 + tilt)))
+    la = min(BOLD_CAP, max(0.4, total / 2 * (1 - tilt)))
     bi = max(range(MAX_GOALS + 1), key=lambda i: _pois(i, lh))
     bj = max(range(MAX_GOALS + 1), key=lambda j: _pois(j, la))
     return [bi, bj]
