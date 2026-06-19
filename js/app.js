@@ -1438,8 +1438,41 @@ function renderDataChip() {
   $('#dataChip').innerHTML = `${m.sample ? '内置示例数据' : '<b>真实开奖数据</b>'} · ${game().name} ${draws().length} 期${m.generated ? ' · ' + m.generated : ''}`;
 }
 
+// 数据停更告警：任一游戏的最新数据落后于「最近应开奖日」时，算出落后天数显眼提示。
+// 复用 dataStale()（与自动刷新同口径）；这次正是数据源全被拦、自动刷新连续失败，
+// 用户 7 天后才发现，所以失败时要把停更推到眼前，而不是只靠后台通知。
+function staleInfo() {
+  const out = [];
+  for (const gk of ['ssq', 'dlt']) {
+    if (!dataStale(gk)) continue;
+    const list = DATA[gk] || [];
+    if (!list.length) continue;
+    const latest = list[0];
+    const days = Math.floor((cnNow() - new Date(latest.date + 'T00:00:00')) / 86400000);
+    out.push({ name: GAMES[gk].name, issue: latest.issue, date: latest.date, days });
+  }
+  return out;
+}
+
+function renderStaleBanner() {
+  const el = $('#staleBanner');
+  if (!el) return;
+  const info = staleInfo();
+  if (!info.length) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+  const parts = info.map((i) => `${i.name}已 <b>${i.days}</b> 天未更新（最新 ${i.issue} / ${i.date}）`).join('；');
+  const action = serverMode ? '<button class="stale-retry" id="staleRetry">立即重试更新</button>' : '请启动 server.py 后重试';
+  el.innerHTML = `⚠ 数据可能停更：${parts}。数据源或被网络拦截、自动刷新未成功。${action}`;
+  el.classList.remove('hidden');
+  const btn = $('#staleRetry');
+  if (btn) btn.onclick = () => {
+    const r = $('#btnRefresh');
+    if (r && !r.disabled) startTask('/api/refresh', r, '⟳ 重试更新中…');
+  };
+}
+
 function renderAll() {
   renderDataChip();
+  renderStaleBanner();
   renderHall();
   renderAnalysis();
   renderInfer();
@@ -1547,6 +1580,7 @@ function init() {
   renderAll();
   detectServer();
   setInterval(autoRefreshTick, 60000);
+  setInterval(renderStaleBanner, 60000);
   versionTick();
   setInterval(versionTick, 120000);
 }

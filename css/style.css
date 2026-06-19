@@ -660,6 +660,31 @@ footer {
 .refresh-log .err { color: #f0978f; }
 .refresh-log .step { color: var(--gold-bright); }
 
+.stale-banner {
+  margin: 10px 20px 0;
+  padding: 11px 16px;
+  background: linear-gradient(135deg, rgba(232, 69, 60, 0.92), rgba(155, 20, 7, 0.92));
+  border: 1px solid rgba(255, 180, 170, 0.5);
+  border-radius: 10px;
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.6;
+  box-shadow: 0 6px 22px rgba(201, 42, 31, 0.35);
+}
+.stale-banner.hidden { display: none; }
+.stale-banner b { font-weight: 700; }
+.stale-banner .stale-retry {
+  margin-left: 10px;
+  padding: 4px 12px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 7px;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.stale-banner .stale-retry:hover { background: rgba(255, 255, 255, 0.28); }
+
 .ai-meta { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
 
 .ai-grid {
