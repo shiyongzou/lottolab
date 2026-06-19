@@ -1731,9 +1731,18 @@ function renderAll() {
 function init() {
   $('#gameSwitch').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-game]');
-    if (!btn || btn.dataset.game === state.game) return;
-    state.game = btn.dataset.game;
+    if (!btn) return;
     $$('#gameSwitch button').forEach((b) => b.classList.toggle('active', b === btn));
+    if (btn.dataset.game === 'worldcup') {
+      // 世界杯：与双色球/大乐透同级，切到它时隐藏彩票 tab 区，只显示世界杯
+      document.body.classList.add('mode-worldcup');
+      renderWorldCup();
+      setTimeout(wcMaybeRefresh, 300);
+      return;
+    }
+    document.body.classList.remove('mode-worldcup');
+    if (btn.dataset.game === state.game) { document.body.className = 'game-' + state.game; return; }
+    state.game = btn.dataset.game;
     document.body.className = 'game-' + state.game;
     state.tickets = [];
     renderAll();

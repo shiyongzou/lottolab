@@ -112,6 +112,18 @@ header, nav, main, footer { position: relative; z-index: 1; }
   color: #2a1d04;
   box-shadow: 0 4px 16px rgba(212, 168, 67, 0.35);
 }
+.game-switch button.active[data-game="worldcup"] {
+  background: linear-gradient(135deg, #3a9b5c, #1f6e3c);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(58, 155, 92, 0.4);
+}
+
+/* 世界杯模式：与双色球/大乐透同级，切到它时隐藏彩票 tab 区，只显示世界杯 */
+body.mode-worldcup .tabs { display: none; }
+body.mode-worldcup .tab-panel { display: none !important; }
+body.mode-worldcup #tab-worldcup { display: block !important; }
+body.mode-worldcup #btnRefresh,
+body.mode-worldcup .data-chip { display: none; }
 
 .data-chip {
   font-size: 12px;
