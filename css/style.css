@@ -146,6 +146,15 @@ header, nav, main, footer { position: relative; z-index: 1; }
 }
 .tabs button:hover { color: var(--text); }
 .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+/* 世界杯独立成栏：推到最右、左分隔线、金色区分（非彩票板块） */
+.tabs button.tab-sep {
+  margin-left: auto;
+  padding-left: 20px;
+  border-left: 1px solid var(--line);
+  color: var(--gold-bright);
+}
+.tabs button.tab-sep:hover { color: var(--gold-bright); filter: brightness(1.15); }
+.tabs button.tab-sep.active { color: var(--gold-bright); border-bottom-color: var(--gold-bright); }
 
 main {
   max-width: 1080px;
