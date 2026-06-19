@@ -6,3 +6,4 @@ __pycache__/
 # TG 凭证与推送状态（含 bot token，绝不提交）
 data/tg_config.json
 data/wc_notified.json
+data/wc_photo_sent.txt

@@ -1526,7 +1526,9 @@ function wcMatchCard(m) {
         <span class="wc-likely-score">${lk[0]} - ${lk[1]}</span>
         <span class="wc-likely-p">${(p.topScores[0][2] * 100).toFixed(1)}%</span>
       </div>
-      <div class="wc-exp"><span>期望进球 λ</span><b>${p.expScore[0]} - ${p.expScore[1]}</b></div>
+      ${p.boldScore
+        ? `<div class="wc-bold"><span class="wc-bold-label">🔥 大胆剧本</span><span class="wc-bold-score">${p.boldScore[0]} - ${p.boldScore[1]}</span></div>`
+        : `<div class="wc-exp"><span>期望进球 λ</span><b>${p.expScore[0]} - ${p.expScore[1]}</b></div>`}
     </div>`;
 
   const wdl = `

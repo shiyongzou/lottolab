@@ -23,6 +23,9 @@ HOST_ADV = 70          # 主办国（美/加/墨）主场的 Elo 当量加成
 MARKET_W = 0.80        # 市场赔率权重（准确率第一：市场是最强基准，回测 28 场 57% > 纯 Elo 54%）
 MARKET_TILT = 0.6      # 市场净胜倾向 → λ 分配的强度
 DIV_FLAG = 0.20        # 模型/市场背离超过此值则标记提示（显著分歧 → 该场更难测）
+# 「大胆剧本」比分：放大实力差 + 市场进球预期，悬殊场敢报大比分（观赏向，与准确的最可能比分并列展示，确定性）
+BOLD_K = 0.0034
+BOLD_INFLATE = 1.3
 MAX_GOALS = 8          # 概率积分用到的最大进球数
 MATRIX_N = 6           # 导出给页面热力图的矩阵尺寸（0..6）
 
@@ -101,6 +104,7 @@ def predict(elo_home, elo_away, host=False, market=None, over_under=None, top_n=
         "lambdaAway": round(la, 3),
         "topScores": [[i, j, round(p, 4)] for i, j, p in cells[:top_n]],
         "likely": [cells[0][0], cells[0][1]],
+        "boldScore": bold_score(elo_home, elo_away, host, over_under),
         "expScore": [round(lh, 2), round(la, 2)],
         "probs": {k: round(v, 4) for k, v in probs.items()},
         "btts": round(btts, 4),
@@ -118,6 +122,19 @@ def predict(elo_home, elo_away, host=False, market=None, over_under=None, top_n=
         if over_under is not None:
             out["overUnder"] = over_under
     return out
+
+
+def bold_score(elo_home, elo_away, host=False, over_under=None):
+    """大胆剧本比分：市场进球预期(overUnder)定总量 + 放大的实力差定分配 + 悬殊加成。
+    悬殊场敢报大比分(如 6-0)，低进球场偏小(可能 0-0/1-0)。确定性，仅观赏参考。"""
+    d = (elo_home + (HOST_ADV if host else 0)) - elo_away
+    total = (over_under or 2.6) * BOLD_INFLATE + abs(d) / 300.0
+    tilt = math.tanh(BOLD_K * d)
+    lh = max(0.4, total / 2 * (1 + tilt))
+    la = max(0.4, total / 2 * (1 - tilt))
+    bi = max(range(MAX_GOALS + 1), key=lambda i: _pois(i, lh))
+    bj = max(range(MAX_GOALS + 1), key=lambda j: _pois(j, la))
+    return [bi, bj]
 
 
 def outcome(score_home, score_away):
