@@ -40,17 +40,27 @@ OVERRIDE = {
     "czechia": "CZ", "czech republic": "CZ",
     "cote divoire": "CI", "ivory coast": "CI",
     "cape verde": "CV", "curacao": "CW",
-    "bosnia and herzegovina": "BA", "republic of ireland": "IE",
+    "bosnia and herzegovina": "BA", "bosniaherzegovina": "BA",
+    "congo dr": "CD", "dr congo": "CD", "democratic republic of congo": "CD",
+    "republic of ireland": "IE",
 }
 
-# 今晚四场涉及队的中文名（其余队回落 ESPN 英文名；后续可逐步补全 48 强）
+# 2026 世界杯参赛队中文名（按 eloratings 代码）；未列出的回落 ESPN 英文名
 ZH_NAMES = {
-    "US": "美国", "AU": "澳大利亚", "SQ": "苏格兰", "MA": "摩洛哥",
-    "BR": "巴西", "HT": "海地", "TR": "土耳其", "PY": "巴拉圭",
-    "ES": "西班牙", "AR": "阿根廷", "FR": "法国", "EN": "英格兰",
-    "PT": "葡萄牙", "DE": "德国", "NL": "荷兰", "BE": "比利时",
-    "MX": "墨西哥", "CA": "加拿大", "JP": "日本", "KR": "韩国",
-    "HR": "克罗地亚", "IT": "意大利", "UY": "乌拉圭", "CO": "哥伦比亚",
+    "US": "美国", "CA": "加拿大", "MX": "墨西哥",
+    "AR": "阿根廷", "BR": "巴西", "UY": "乌拉圭", "CO": "哥伦比亚",
+    "EC": "厄瓜多尔", "PY": "巴拉圭",
+    "ES": "西班牙", "FR": "法国", "EN": "英格兰", "PT": "葡萄牙",
+    "DE": "德国", "NL": "荷兰", "BE": "比利时", "HR": "克罗地亚",
+    "CH": "瑞士", "AT": "奥地利", "NO": "挪威", "SE": "瑞典",
+    "SQ": "苏格兰", "CZ": "捷克", "IT": "意大利",
+    "MA": "摩洛哥", "SN": "塞内加尔", "CI": "科特迪瓦", "DZ": "阿尔及利亚",
+    "EG": "埃及", "TN": "突尼斯", "GH": "加纳", "CV": "佛得角", "ZA": "南非",
+    "JP": "日本", "KR": "韩国", "IR": "伊朗", "SA": "沙特阿拉伯",
+    "QA": "卡塔尔", "IQ": "伊拉克", "JO": "约旦", "UZ": "乌兹别克斯坦",
+    "AU": "澳大利亚", "NZ": "新西兰",
+    "TR": "土耳其", "HT": "海地", "PA": "巴拿马", "CW": "库拉索",
+    "BA": "波黑", "CD": "刚果(金)",
 }
 
 
@@ -128,10 +138,16 @@ def parse_score(competitor):
         return None
 
 
+WC_FULL_RANGE = "20260611-20260719"  # 2026 世界杯完整赛程（美/加/墨，104 场）
+
+
 def expand_dates(arg):
-    if arg:
-        return arg
-    return date.today().strftime("%Y%m%d")
+    # 默认拉完整赛程；可传具体日期 YYYYMMDD 或区间 YYYYMMDD-YYYYMMDD，或 today
+    if arg in (None, "all", "full"):
+        return WC_FULL_RANGE
+    if arg == "today":
+        return date.today().strftime("%Y%m%d")
+    return arg
 
 
 def build_match(ev, name2code, elo):
@@ -190,7 +206,7 @@ def main():
     elo = load_elo()
     name2code = load_name2code()
 
-    url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates={dates}"
+    url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates={dates}&limit=400"
     data = json.loads(http_get(url))
     events = data.get("events", [])
     if not events:

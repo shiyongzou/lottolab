@@ -432,6 +432,7 @@ function autoRefreshTick() {
 
 // 定时任务/监视器在后台改了数据文件时，开着的页面通过 Last-Modified 感知并自动重载
 let dataVersion = null;
+let wcVersion = null;
 async function versionTick() {
   if (!location.protocol.startsWith('http')) return;
   try {
@@ -443,6 +444,14 @@ async function versionTick() {
       return;
     }
     if (v) dataVersion = v;
+    const rw = await fetch('/data/wc_matches.js', { method: 'HEAD', cache: 'no-store' });
+    const vw = rw.headers.get('Last-Modified');
+    if (wcVersion && vw && vw !== wcVersion) {
+      toast('世界杯数据已更新，页面自动刷新…');
+      setTimeout(() => location.reload(), 1000);
+      return;
+    }
+    if (vw) wcVersion = vw;
   } catch (e) {}
 }
 
@@ -1215,8 +1224,10 @@ function detectServer() {
       r.classList.remove('hidden');
       r.addEventListener('click', () => startTask('/api/refresh', r, '⟳ 计算中…'));
       renderBacktestActions();
+      renderWorldCup();
       syncWalletFromServer();
       setTimeout(autoRefreshTick, 5000);
+      setTimeout(wcMaybeRefresh, 8000);
       fetch('/api/status')
         .then((res) => res.json())
         .then((st) => {
@@ -1569,24 +1580,99 @@ function wcMatchCard(m) {
     + `${headline}${wdl}${tops}${heat}${extra}${verdict}</div>`;
 }
 
+function wcDayKey(date) {
+  return new Date(date).toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
+}
+
+function wcDataAgeMin() {
+  if (!WC.meta || !WC.meta.generated) return Infinity;
+  return (Date.now() - new Date(WC.meta.generated).getTime()) / 60000;
+}
+
+function wcHasLive() {
+  return (WC.matches || []).some((m) => m.score && !(m.result && m.result.final));
+}
+
 function renderWorldCup() {
   const box = $('#wcBox');
   if (!box) return;
   const ms = WC.matches || [];
+  const refreshBtn = serverMode ? '<button id="wcRefreshBtn" class="wc-refresh-btn">↻ 刷新赛程·比分</button>' : '';
+  const gen = WC.meta.generated ? WC.meta.generated.slice(0, 16).replace('T', ' ') : '—';
   const intro = `
     <div class="wc-intro">
-      <h2 class="wc-title">⚽ 世界杯比分预测 · 双泊松模型</h2>
-      <p>赛程与比分来自 <b>ESPN</b>，球队实力用 <b>World Football Elo</b>（eloratings.net）；开赛前按当时 Elo 锁定预测，开赛后用真实比分自动对照。</p>
+      <div class="wc-intro-top">
+        <h2 class="wc-title">⚽ 世界杯比分预测 · 双泊松模型</h2>
+        ${refreshBtn}
+      </div>
+      <p>赛程与比分来自 <b>ESPN</b>，球队实力用 <b>World Football Elo</b>（eloratings.net）；开赛前按当时 Elo 锁定预测，开赛后用真实比分自动对照。淘汰赛对阵未定（TBD）时按本站原则留空不臆测。</p>
       <p class="wc-disclaimer">模型是 Elo 驱动的<b>确定性</b>双泊松（零随机，同输入同输出）。足球比分高度不确定，这里给的是<b>概率分布，不是结果保证</b>——和本站对彩票的态度一致：诚实、可复现、不吹能算准。</p>
     </div>`;
   if (!ms.length) {
     box.innerHTML = intro + '<div class="wc-empty">暂无赛事数据。运行 <code>python3 fetch_wc.py</code> 拉取赛程后即可看到预测。</div>';
+    wcBindRefresh();
     return;
   }
-  const cards = ms.map(wcMatchCard).join('');
-  const gen = WC.meta.generated ? WC.meta.generated.slice(0, 16).replace('T', ' ') : '—';
+
+  // 按北京日期分组（matches 已按 date 升序，Map 保留插入顺序）
+  const groups = new Map();
+  for (const m of ms) {
+    const key = wcDayKey(m.date);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        label: new Date(m.date).toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', weekday: 'short' }),
+        list: [],
+      });
+    }
+    groups.get(key).list.push(m);
+  }
+  const todayKey = wcDayKey(cnNow());
+
+  let html = '';
+  let overHit = 0, overDone = 0, firstFutureShown = false;
+  for (const [key, g] of groups) {
+    const list = g.list;
+    const done = list.filter((m) => m.result);
+    const live = list.filter((m) => m.score && !(m.result && m.result.final));
+    const hit = done.filter((m) => m.result.outcomeHit).length;
+    overHit += hit; overDone += done.length;
+    const future = !list.some((m) => m.score);
+    const isToday = key === todayKey;
+    let open = isToday;
+    if (future && !firstFutureShown) { open = true; firstFutureShown = true; }
+    let badge;
+    if (live.length) badge = `<span class="wc-day-live">● 进行中 ${live.length}</span>`;
+    else if (done.length) badge = `方向命中 ${hit}/${done.length}`;
+    else badge = '待开赛';
+    const cards = list.map(wcMatchCard).join('');
+    html += `<details class="wc-day"${open ? ' open' : ''}>
+      <summary><span class="wc-day-date">${g.label}${isToday ? ' · 今天' : ''}</span><span class="wc-day-meta">${list.length} 场 · ${badge}</span></summary>
+      <div class="wc-grid">${cards}</div>
+    </details>`;
+  }
+  const scoreboard = overDone
+    ? `<div class="wc-scoreboard">模型战绩（诚实记录）：已结束 <b>${overDone}</b> 场，胜平负方向命中 <b>${overHit}</b> 场（${Math.round(overHit / overDone * 100)}%）。足球比分本就难测，这只是模型在已知结果上的真实表现，不代表未来。</div>`
+    : '';
   const foot = `<p class="wc-foot">数据更新：${gen} · 模型：${WC.meta.model || '双泊松'} · 仅供研究娱乐，不构成任何投注建议</p>`;
-  box.innerHTML = intro + `<div class="wc-grid">${cards}</div>` + foot;
+  box.innerHTML = intro + scoreboard + html + foot;
+  wcBindRefresh();
+}
+
+function wcBindRefresh() {
+  const btn = $('#wcRefreshBtn');
+  if (btn) btn.onclick = () => startTask('/api/wc', btn, '⟳ 更新赛程中…');
+}
+
+// 自动刷新：进入页面/定时检查，数据旧就后台拉一次（有比赛进行中时更勤快）
+function wcMaybeRefresh() {
+  if (!serverMode) return;
+  const threshold = wcHasLive() ? 3 : 30;
+  if (wcDataAgeMin() < threshold) return;
+  const last = Number(localStorage.getItem('lottolab_wc_try') || 0);
+  if (Date.now() - last < 3 * 60 * 1000) return;
+  localStorage.setItem('lottolab_wc_try', String(Date.now()));
+  const btn = $('#wcRefreshBtn') || $('#btnRefresh');
+  if (btn && !btn.disabled) startTask('/api/wc', btn, '⟳ 更新赛程中…');
 }
 
 function renderAll() {
@@ -1619,6 +1705,7 @@ function init() {
     if (!btn) return;
     $$('#tabs button').forEach((b) => b.classList.toggle('active', b === btn));
     $$('.tab-panel').forEach((p) => p.classList.toggle('active', p.id === 'tab-' + btn.dataset.tab));
+    if (btn.dataset.tab === 'worldcup') setTimeout(wcMaybeRefresh, 300);
   });
 
   $('#inferPills').addEventListener('click', (e) => {
@@ -1701,6 +1788,7 @@ function init() {
   detectServer();
   setInterval(autoRefreshTick, 60000);
   setInterval(renderStaleBanner, 60000);
+  setInterval(wcMaybeRefresh, 120000);
   versionTick();
   setInterval(versionTick, 120000);
 }
