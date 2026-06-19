@@ -38,6 +38,7 @@ PIPELINES = {
     ],
     "wc": [
         ("世界杯赛程+比分+预测对照", ["fetch_wc.py"], 120),
+        ("推送预测到 Telegram", ["scripts/wc_notify.py"], 60),
     ],
 }
 
