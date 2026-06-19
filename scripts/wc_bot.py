@@ -116,6 +116,58 @@ def ask_claude(text):
         return f"（出错了：{e}）"
 
 
+BROWSE = Path.home() / ".claude" / "skills" / "gstack" / "browse" / "dist" / "browse"
+
+
+def capture_day(month, day):
+    """截某天的预测卡片高清图（retina ×2），返回路径或 None"""
+    if not BROWSE.exists():
+        return None
+    label = f"{month}/{day}"
+    img = "/tmp/wc_day.png"
+    clickwc = "[...document.querySelectorAll('#gameSwitch button')].find(x=>x.dataset.game==='worldcup').click()"
+    expand = (clickwc + ";var ds=[...document.querySelectorAll('.wc-day')];"
+              "ds.forEach(d=>{var t=d.querySelector('.wc-day-date');"
+              "d.open=!!(t&&t.textContent.includes('" + label + "'))});"
+              "var t=ds.find(d=>d.open);if(t)t.scrollIntoView({block:'start'});window.scrollBy(0,-15)")
+
+    def b(*a, t=40):
+        subprocess.run([str(BROWSE), *a], capture_output=True, timeout=t)
+    try:
+        b("goto", "http://127.0.0.1:8770/")
+        b("wait", "--load")
+        b("js", clickwc)
+        b("viewport", "1100x2200", "--scale", "2")
+        b("js", expand)
+        b("screenshot", img, "--viewport")
+        return img if Path(img).exists() else None
+    except Exception:
+        return None
+
+
+def send_photo(token, chat, img, caption):
+    r = subprocess.run([
+        "curl", "-sS", "--max-time", "40",
+        f"https://api.telegram.org/bot{token}/sendPhoto",
+        "-F", f"chat_id={chat}", "-F", f"photo=@{img}", "-F", f"caption={caption}",
+    ], capture_output=True, text=True, timeout=60)
+    try:
+        return json.loads(r.stdout).get("ok", False)
+    except json.JSONDecodeError:
+        return False
+
+
+def reply_day(token, wc, chat, month, day, title):
+    if not day_matches(wc, f"{month:02d}-{day:02d}"):
+        send(token, chat, f"{title}：暂无可预测场次（未排期或对阵未定）")
+        return
+    api(token, "sendChatAction", chat_id=chat, action="upload_photo")
+    img = capture_day(month, day)
+    cap = f"🏆 {title} · 世界杯预测（最可能 + 🔥大胆剧本）"
+    if not (img and send_photo(token, chat, img, cap)):
+        send(token, chat, fmt_day(wc, f"{month:02d}-{day:02d}", title))  # 截图失败回落文字
+
+
 def handle(token, wc, chat, text, reply=""):
     t = text.strip()
     now = datetime.now(CN)
@@ -123,16 +175,16 @@ def handle(token, wc, chat, text, reply=""):
         send(token, chat, HELP)
         return
     if t in ("/今天", "/today"):
-        send(token, chat, fmt_day(wc, now.strftime("%m-%d"), "今天"))
+        reply_day(token, wc, chat, now.month, now.day, "今天")
         return
     if t in ("/明天", "/tomorrow"):
         d = now + timedelta(days=1)
-        send(token, chat, fmt_day(wc, d.strftime("%m-%d"), "明天"))
+        reply_day(token, wc, chat, d.month, d.day, "明天")
         return
     mt = re.match(r"/day\s+(\d{1,2})-(\d{1,2})", t) or re.match(r"/(\d{1,2})-(\d{1,2})$", t)
     if mt:
-        key = f"{int(mt.group(1)):02d}-{int(mt.group(2)):02d}"
-        send(token, chat, fmt_day(wc, key, key))
+        a, bb = int(mt.group(1)), int(mt.group(2))
+        reply_day(token, wc, chat, a, bb, f"{a}月{bb}日")
         return
     # 非指令 → 自然语言，交给 Claude 理解（像和这个会话对话一样）
     api(token, "sendChatAction", chat_id=chat, action="typing")

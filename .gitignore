@@ -8,3 +8,4 @@ data/tg_config.json
 data/wc_notified.json
 data/wc_photo_sent.txt
 data/wc_live_state.json
+data/wc_bot_offset.txt
