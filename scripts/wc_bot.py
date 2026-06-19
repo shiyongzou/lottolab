@@ -90,28 +90,40 @@ def fmt_day(wc, daykey, title):
 
 
 CLAUDE_SYS = (
-    "你是「足球小子」，世界杯预测助手，在 Telegram 上和用户（李雷）中文对话。"
-    "当前目录 data/wc_matches.js 是 window.WC_DATA，matches[] 每场含："
-    "home/away（name 队名、elo 实力分）、date（UTC 时间）、group、host（是否主办国主场）、"
-    "pred.likely（统计最可能比分）、pred.boldScore（🔥大胆剧本比分）、"
-    "pred.probs（融合胜/平/负概率）、pred.eloProbs/marketProbs（纯Elo/市场赔率胜平负）、"
-    "pred.divergence（模型与市场背离度）、score（实际比分）、result（开赛后对照命中）。"
-    "data/wc_matches.js 时间是 UTC，北京时间要 +8 小时。"
-    "用简洁口语中文回答用户关于世界杯预测、比赛、球队的任何问题；可以读项目数据、可以联网查实时信息（伤病/新闻等）。"
-    "诚实：模型预测是概率不是保证，最可能比分统计上偏小、大胆剧本才敢报大比分。"
-    "绝对不要修改任何文件、不要运行构建/部署/git。回答简短，适合手机看，别超过 12 行。"
+    "你是「足球小子」，世界杯预测助手，在 Telegram 和用户中文对话。"
+    "下方【预测数据】已含全部场次（北京时间、对阵、最可能比分、🔥大胆剧本、胜平负%、实际比分）。"
+    "优先直接用这些数据，简洁口语秒答——别去读文件、别纠结过程。"
+    "只有用户明确问实时信息（伤病/阵容/新闻）时才联网查。"
+    "诚实：预测是概率不是保证。绝不修改文件、不跑命令。回答简短，适合手机，别超 10 行。"
 )
 
 
-def ask_claude(text):
-    """把自然语言消息交给本机 claude CLI 理解并回答（读项目数据、可联网）"""
+def build_context(wc):
+    rows = []
+    for m in wc.get("matches", []):
+        if not m.get("pred"):
+            continue
+        dt = datetime.fromisoformat(m["date"].replace("Z", "+00:00")).astimezone(CN)
+        p = m["pred"]
+        pr = p["probs"]
+        sc = f" 实际{m['score']['home']}-{m['score']['away']}" if m.get("score") else ""
+        rows.append(
+            f"{dt.strftime('%m-%d %H:%M')} {m['home']['name']}vs{m['away']['name']} "
+            f"最可能{p['likely'][0]}-{p['likely'][1]} 大胆{p['boldScore'][0]}-{p['boldScore'][1]} "
+            f"胜平负{round(pr['home']*100)}/{round(pr['draw']*100)}/{round(pr['away']*100)}{sc}")
+    return "\n".join(rows)
+
+
+def ask_claude(text, wc):
+    """自然语言交给本机 claude（预喂预测数据 + 快模型 sonnet，加速）"""
+    sys = CLAUDE_SYS + "\n\n【预测数据】\n" + build_context(wc)
     try:
         r = subprocess.run(
-            ["claude", "-p", text, "--append-system-prompt", CLAUDE_SYS],
-            cwd=str(ROOT), capture_output=True, text=True, timeout=180)
+            ["claude", "-p", text, "--append-system-prompt", sys, "--model", "sonnet"],
+            cwd=str(ROOT), capture_output=True, text=True, timeout=150)
         return (r.stdout or "").strip() or "（没拿到回复，换个说法再问问）"
     except subprocess.TimeoutExpired:
-        return "（想太久超时了，问题说简单点再试）"
+        return "（这个有点复杂查得久，稍后再试或问简单点～）"
     except Exception as e:
         return f"（出错了：{e}）"
 
@@ -189,7 +201,7 @@ def handle(token, wc, chat, text, reply=""):
     # 非指令 → 自然语言，交给 Claude 理解（像和这个会话对话一样）
     api(token, "sendChatAction", chat_id=chat, action="typing")
     q = f"（用户正在回复你之前发的这条消息：\n「{reply}」）\n用户现在说：{t}" if reply else t
-    send(token, chat, ask_claude(q))
+    send(token, chat, ask_claude(q, wc))
 
 
 def main():
