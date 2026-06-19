@@ -3,6 +3,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 const DATA = window.LOTTO_DATA || { meta: {}, ssq: [], dlt: [] };
 const FULL = window.LOTTO_FULL || null;
+const WC = window.WC_DATA || { meta: {}, teams: {}, matches: [] };
 const state = { game: 'ssq', strategy: 'random', tickets: [], scope: '150', inferWindow: '150' };
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -1470,9 +1471,128 @@ function renderStaleBanner() {
   };
 }
 
+/* ---------- 世界杯比分预测（双泊松确定性模型） ---------- */
+
+function wcPct(x) { return Math.round(x * 100) + '%'; }
+
+function wcKickoff(iso) {
+  try {
+    return new Date(iso).toLocaleString('zh-CN', {
+      timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }) + ' 北京';
+  } catch (e) { return iso; }
+}
+
+function wcMatchCard(m) {
+  const h = m.home, a = m.away;
+  const head = `
+    <div class="wc-head">
+      <div class="wc-team wc-team-h">
+        <span class="wc-name">${h.name}</span>
+        <span class="wc-elo">Elo ${h.elo != null ? h.elo : '—'}</span>
+      </div>
+      <div class="wc-vs">
+        ${m.score ? `<span class="wc-realscore">${m.score.home} : ${m.score.away}</span>`
+                  : '<span class="wc-vs-x">VS</span>'}
+        <span class="wc-kick">${m.score ? (m.result && m.result.final ? '已结束' : '进行中') : wcKickoff(m.date)}</span>
+      </div>
+      <div class="wc-team wc-team-a">
+        <span class="wc-name">${a.name}</span>
+        <span class="wc-elo">Elo ${a.elo != null ? a.elo : '—'}</span>
+      </div>
+    </div>`;
+
+  if (!m.pred) {
+    return `<div class="wc-card">${head}<div class="wc-nopred">缺少该场球队的实力数据，按本站原则不臆测预测。</div></div>`;
+  }
+
+  const p = m.pred, lk = p.likely, prob = p.probs;
+  const headline = `
+    <div class="wc-headline">
+      <div class="wc-likely">
+        <span class="wc-likely-label">最可能比分</span>
+        <span class="wc-likely-score">${lk[0]} - ${lk[1]}</span>
+        <span class="wc-likely-p">${(p.topScores[0][2] * 100).toFixed(1)}%</span>
+      </div>
+      <div class="wc-exp"><span>期望进球 λ</span><b>${p.expScore[0]} - ${p.expScore[1]}</b></div>
+    </div>`;
+
+  const wdl = `
+    <div class="wc-section-label">胜 / 平 / 负 概率</div>
+    <div class="wc-wdl">
+      <div class="wc-wdl-seg wc-home" style="width:${Math.max(prob.home * 100, 8)}%" title="${h.name}胜">${wcPct(prob.home)}</div>
+      <div class="wc-wdl-seg wc-draw" style="width:${Math.max(prob.draw * 100, 8)}%" title="平局">${wcPct(prob.draw)}</div>
+      <div class="wc-wdl-seg wc-away" style="width:${Math.max(prob.away * 100, 8)}%" title="${a.name}胜">${wcPct(prob.away)}</div>
+    </div>`;
+
+  const maxP = p.topScores[0][2];
+  const tops = `
+    <div class="wc-section-label">最可能的几种比分</div>
+    <div class="wc-tops">
+      ${p.topScores.map(([i, j, pr]) => `
+        <div class="wc-score-row">
+          <span class="wc-score">${i}-${j}</span>
+          <div class="wc-bar"><div style="width:${(pr / maxP * 100).toFixed(0)}%"></div></div>
+          <span class="wc-pct">${(pr * 100).toFixed(1)}%</span>
+        </div>`).join('')}
+    </div>`;
+
+  const cells = p.matrix.map((row, i) => row.map((pr, j) => {
+    const hot = i === lk[0] && j === lk[1];
+    const op = Math.min(1, pr * 7).toFixed(3);
+    return `<div class="wc-cell${hot ? ' wc-cell-hot' : ''}" style="background:rgba(232,69,60,${op})" title="${i}-${j}  ${(pr * 100).toFixed(1)}%">${pr >= 0.05 ? (i + '-' + j) : ''}</div>`;
+  }).join('')).join('');
+  const heat = `
+    <div class="wc-section-label">比分概率热力图（行：${h.name}进球↓ · 列：${a.name}进球→）</div>
+    <div class="wc-heat">${cells}</div>`;
+
+  const extra = `
+    <div class="wc-extra">
+      <span>双方均进球 <b>${wcPct(p.btts)}</b></span>
+      <span>大 2.5 球 <b>${wcPct(p.over25)}</b></span>
+    </div>`;
+
+  let verdict = '';
+  if (m.result) {
+    const r = m.result;
+    const oc = { home: h.name + '胜', draw: '平局', away: a.name + '胜' };
+    verdict = `
+      <div class="wc-verdict">
+        <span class="wc-badge ${r.outcomeHit ? 'wc-ok' : 'wc-no'}">方向${r.outcomeHit ? '命中' : '未中'}：预测${oc[r.outcomePred]} · 实际${oc[r.outcomeReal]}</span>
+        <span class="wc-badge ${r.exactHit ? 'wc-ok' : 'wc-no'}">精确比分${r.exactHit ? '命中' : '未中'}</span>
+      </div>`;
+  }
+
+  return `<div class="wc-card${m.host ? ' wc-host' : ''}">${head}`
+    + `${m.host ? '<div class="wc-hostflag">🏟 主办国主场（已计入 Elo 修正）</div>' : ''}`
+    + `${headline}${wdl}${tops}${heat}${extra}${verdict}</div>`;
+}
+
+function renderWorldCup() {
+  const box = $('#wcBox');
+  if (!box) return;
+  const ms = WC.matches || [];
+  const intro = `
+    <div class="wc-intro">
+      <h2 class="wc-title">⚽ 世界杯比分预测 · 双泊松模型</h2>
+      <p>赛程与比分来自 <b>ESPN</b>，球队实力用 <b>World Football Elo</b>（eloratings.net）；开赛前按当时 Elo 锁定预测，开赛后用真实比分自动对照。</p>
+      <p class="wc-disclaimer">模型是 Elo 驱动的<b>确定性</b>双泊松（零随机，同输入同输出）。足球比分高度不确定，这里给的是<b>概率分布，不是结果保证</b>——和本站对彩票的态度一致：诚实、可复现、不吹能算准。</p>
+    </div>`;
+  if (!ms.length) {
+    box.innerHTML = intro + '<div class="wc-empty">暂无赛事数据。运行 <code>python3 fetch_wc.py</code> 拉取赛程后即可看到预测。</div>';
+    return;
+  }
+  const cards = ms.map(wcMatchCard).join('');
+  const gen = WC.meta.generated ? WC.meta.generated.slice(0, 16).replace('T', ' ') : '—';
+  const foot = `<p class="wc-foot">数据更新：${gen} · 模型：${WC.meta.model || '双泊松'} · 仅供研究娱乐，不构成任何投注建议</p>`;
+  box.innerHTML = intro + `<div class="wc-grid">${cards}</div>` + foot;
+}
+
 function renderAll() {
   renderDataChip();
   renderStaleBanner();
+  renderWorldCup();
   renderHall();
   renderAnalysis();
   renderInfer();
