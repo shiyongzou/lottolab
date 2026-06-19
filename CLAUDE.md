@@ -38,7 +38,7 @@ scripts/ai_pick.sh                完整流水线一键脚本
 scripts/auto_refresh.sh           开奖夜探源重试版（launchd 调用）
 scripts/install_autostart.sh      定时任务安装（路径自适配，新机器跑一次）
 fetch_wc.py                       世界杯赛程/比分抓取 + 跑模型 → data/wc_matches.js（ESPN + eloratings，海外可达）
-scripts/wc_model.py               世界杯比分·双泊松确定性模型（Elo 驱动，零随机，可独立 CLI 测）
+scripts/wc_model.py               世界杯比分·多维确定性融合模型（Elo×市场赔率 双泊松，零随机，可独立 CLI 测）
 启动彩数实验室.command             双击启动入口
 ```
 
@@ -91,7 +91,8 @@ scripts/wc_model.py               世界杯比分·双泊松确定性模型（El
 
 第 7 个 tab「世界杯」。和彩票同一套价值观：真实数据 + 确定性模型 + 诚实标注不确定性。
 - **数据源**（均国际站，新加坡机房出口可达）：赛程+实时比分用 ESPN site API（`soccer/fifa.world/scoreboard?dates=`）；球队实力用 World Football Elo（`eloratings.net/World.tsv`）；队名→代码靠 `en.teams.tsv` 自动匹配（绕开 Scotland=SQ、Türkiye=TR 等非 ISO 坑，`norm()` 用 NFKD 去变音符号——少了这步 Türkiye 会匹配失败）。
-- **模型 scripts/wc_model.py**：Elo 差 → 两队预期进球 λ（指数映射 + 主办国美/加/墨主场 +70 Elo 当量）→ 两个独立泊松 → 比分概率矩阵 → 最可能比分/Top比分/胜平负/BTTS/大2.5球。**零随机、确定性**（同 Elo 同输出，已 diff 验证），与彩票模型同红线。参数经验标定（AVG=1.35 / K=0.0018 / HOST_ADV=70）透明写在文件头，可 CLI 直接测：`python3 scripts/wc_model.py 1978 1536`。
+- **模型 scripts/wc_model.py（多维确定性融合）**：① Elo 双泊松（Elo 差 + 主办国 +70 当量 → 两队 λ）；② 市场赔率（ESPN summary 的 moneyline 去抽水 → 市场隐含胜平负，overUnder → 市场预期总进球），市场把伤病/状态/动机/假球嫌疑全定价进去了，是最浓缩的多维信号；③ 融合：Elo λ 与「市场反推 λ」按固定权重 MARKET_W=0.55 融合，统一驱动比分分布；④ **背离信号**：纯 Elo 胜平负 vs 市场胜平负的最大差 ≥ DIV_FLAG(0.20) 标记「模型/市场分歧」——这是**负责任地替代主观「假球判断」**，用数据说话，不靠 LLM 臆测（用户问过假球，正确做法就是这个）。无赔率时自动退化纯 Elo。**全程零随机、确定性、运行期零 LLM**——这是「总准确率可信、可对照」的根基；用户问过「拉 subagent 分析」，但 LLM 运行期分析不可复现会让准确率失去意义，故选确定性多维（2026-06-19 用户拍板）。参数透明写在文件头，可 CLI 测：`python3 scripts/wc_model.py 1978 1536`。
+- **准确率仪表盘**（页面顶部）：已结束场次的融合模型胜平负方向命中率（大字）+ 精确比分命中率 + **市场赔率基准命中率**（模型 vs 市场谁更准，诚实对照）。背离标记的场次在卡片内显示「⚠ 模型与市场分歧 N%」。
 - **闭环**（仿预测台账）：开赛前按当时 Elo 锁定预测（存 predLockElo），开赛后 fetch_wc.py 用真实比分自动对照（exactHit 精确比分 / outcomeHit 胜平负方向）。
 - **刷新**：`python3 fetch_wc.py [today | YYYYMMDD | 区间]`，默认拉**完整赛程 104 场**（ESPN `dates=20260611-20260719&limit=400` 一次拉全）。**已接入自动刷新**：server 端 `POST /api/wc` 跑流水线（server.py 的 PIPELINES["wc"]）；页面进入「世界杯」tab 或定时（120s）检查，`wcMaybeRefresh()` 数据旧就后台拉（有比赛进行中时阈值从 30 分钟降到 3 分钟），`versionTick` 兼探 wc_matches.js 变化自动重载——开赛期间页面会自动更新比分对照，无需手动。还有手动「↻ 刷新赛程·比分」按钮。
 - **页面**：按北京日期分组、`<details>` 折叠，默认只展开「今天 + 下一个比赛日」；顶部有模型战绩条（已结束场次胜平负方向命中率，诚实记录）。

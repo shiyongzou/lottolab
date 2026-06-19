@@ -1537,6 +1537,25 @@ function wcMatchCard(m) {
       <div class="wc-wdl-seg wc-away" style="width:${Math.max(prob.away * 100, 8)}%" title="${a.name}胜">${wcPct(prob.away)}</div>
     </div>`;
 
+  // 多维对比：Elo 模型 / 市场赔率 / 融合，以及模型-市场背离信号
+  let compare = '';
+  if (p.marketProbs) {
+    const cmpRow = (label, pr, cls) =>
+      `<div class="wc-cmp-row"><span class="wc-cmp-tag ${cls}">${label}</span>`
+      + `<span>${Math.round(pr.home * 100)}</span><span>${Math.round(pr.draw * 100)}</span><span>${Math.round(pr.away * 100)}</span></div>`;
+    compare = `
+      <div class="wc-section-label">胜平负对比（%）：模型 vs 市场 vs 融合${m.oddsProvider ? ' · 赔率源 ' + m.oddsProvider : ''}</div>
+      <div class="wc-cmp">
+        <div class="wc-cmp-row wc-cmp-head"><span></span><span>主</span><span>平</span><span>客</span></div>
+        ${cmpRow('Elo 实力', p.eloProbs, '')}
+        ${cmpRow('市场赔率', p.marketProbs, 'mkt')}
+        ${cmpRow('融合', p.probs, 'fuse')}
+      </div>
+      ${p.divergenceFlag
+        ? `<div class="wc-diverge">⚠ 模型与市场分歧 ${Math.round(p.divergence * 100)}%——市场掌握的信息（伤病/状态/动机）与纯实力评估背离较大，该场更难测</div>`
+        : ''}`;
+  }
+
   const maxP = p.topScores[0][2];
   const tops = `
     <div class="wc-section-label">最可能的几种比分</div>
@@ -1577,7 +1596,7 @@ function wcMatchCard(m) {
 
   return `<div class="wc-card${m.host ? ' wc-host' : ''}">${head}`
     + `${m.host ? '<div class="wc-hostflag">🏟 主办国主场（已计入 Elo 修正）</div>' : ''}`
-    + `${headline}${wdl}${tops}${heat}${extra}${verdict}</div>`;
+    + `${headline}${wdl}${compare}${tops}${heat}${extra}${verdict}</div>`;
 }
 
 function wcDayKey(date) {
@@ -1629,13 +1648,23 @@ function renderWorldCup() {
   const todayKey = wcDayKey(cnNow());
 
   let html = '';
-  let overHit = 0, overDone = 0, firstFutureShown = false;
+  let overHit = 0, overDone = 0, overExact = 0, mktHit = 0, mktTotal = 0, firstFutureShown = false;
   for (const [key, g] of groups) {
     const list = g.list;
     const done = list.filter((m) => m.result);
     const live = list.filter((m) => m.score && !(m.result && m.result.final));
     const hit = done.filter((m) => m.result.outcomeHit).length;
     overHit += hit; overDone += done.length;
+    overExact += done.filter((m) => m.result.exactHit).length;
+    for (const m of done) {
+      if (m.pred && m.pred.marketProbs && m.score) {
+        mktTotal++;
+        const mk = m.pred.marketProbs;
+        const mkPick = mk.home >= mk.draw && mk.home >= mk.away ? 'home' : (mk.away >= mk.draw ? 'away' : 'draw');
+        const real = m.score.home > m.score.away ? 'home' : (m.score.home < m.score.away ? 'away' : 'draw');
+        if (mkPick === real) mktHit++;
+      }
+    }
     const future = !list.some((m) => m.score);
     const isToday = key === todayKey;
     let open = isToday;
@@ -1650,11 +1679,21 @@ function renderWorldCup() {
       <div class="wc-grid">${cards}</div>
     </details>`;
   }
-  const scoreboard = overDone
-    ? `<div class="wc-scoreboard">模型战绩（诚实记录）：已结束 <b>${overDone}</b> 场，胜平负方向命中 <b>${overHit}</b> 场（${Math.round(overHit / overDone * 100)}%）。足球比分本就难测，这只是模型在已知结果上的真实表现，不代表未来。</div>`
+  const dash = overDone
+    ? `<div class="wc-dash">
+         <div class="wc-dash-hero">
+           <div class="wc-dash-pct">${Math.round(overHit / overDone * 100)}%</div>
+           <div class="wc-dash-cap">融合模型 · 胜平负方向命中<br><span>${overHit} / ${overDone} 场已结束</span></div>
+         </div>
+         <div class="wc-dash-stats">
+           <div><b>${Math.round(overExact / overDone * 100)}%</b><span>精确比分命中 ${overExact}/${overDone}</span></div>
+           <div><b>${mktTotal ? Math.round(mktHit / mktTotal * 100) : '—'}%</b><span>市场赔率基准 ${mktHit}/${mktTotal}</span></div>
+         </div>
+         <p class="wc-dash-note">诚实记录：融合模型在已开赛场次的真实命中率，不代表未来。和本站对彩票的态度一样——结果原样摆出来，不挑不藏。</p>
+       </div>`
     : '';
   const foot = `<p class="wc-foot">数据更新：${gen} · 模型：${WC.meta.model || '双泊松'} · 仅供研究娱乐，不构成任何投注建议</p>`;
-  box.innerHTML = intro + scoreboard + html + foot;
+  box.innerHTML = intro + dash + html + foot;
   wcBindRefresh();
 }
 

@@ -971,6 +971,8 @@ body.game-dlt .top-pick { background: linear-gradient(160deg, rgba(212, 168, 67,
   .ball { width: 30px; height: 30px; font-size: 12.5px; }
   .ball.lg { width: 40px; height: 40px; font-size: 16px; }
   .wc-grid { grid-template-columns: 1fr; }
+  .wc-dash { grid-template-columns: 1fr; }
+  .wc-dash-stats { flex-wrap: wrap; gap: 16px; }
 }
 
 /* ---------- 世界杯比分预测 ---------- */
@@ -1087,3 +1089,35 @@ body.game-dlt .top-pick { background: linear-gradient(160deg, rgba(212, 168, 67,
 .wc-day-meta { font-size: 11.5px; color: #9b9088; font-family: var(--mono); margin-left: auto; }
 .wc-day-live { color: #8fce6f; }
 .wc-day .wc-grid { padding: 14px 16px; }
+
+/* 多维对比：Elo / 市场 / 融合 */
+.wc-cmp { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.wc-cmp-row { display: grid; grid-template-columns: 1fr 30px 30px 30px; gap: 4px; align-items: center; }
+.wc-cmp-head { color: #9b9088; font-size: 10.5px; }
+.wc-cmp-head span:not(:first-child) { text-align: center; }
+.wc-cmp-row > span:not(.wc-cmp-tag) { text-align: center; font-family: var(--mono); color: var(--text); }
+.wc-cmp-tag { color: #9b9088; }
+.wc-cmp-tag.mkt { color: #8cb8ff; }
+.wc-cmp-tag.fuse { color: var(--gold-bright); font-weight: 700; }
+.wc-diverge {
+  margin-top: 8px; padding: 7px 10px; font-size: 11px; line-height: 1.5;
+  background: rgba(232, 69, 60, 0.12); border: 1px solid rgba(232, 69, 60, 0.3);
+  border-radius: 8px; color: #f0978f;
+}
+
+/* 准确率仪表盘 */
+.wc-dash {
+  background: linear-gradient(135deg, rgba(201, 42, 31, 0.2), rgba(22, 18, 15, 0.9) 60%);
+  border: 1px solid rgba(240, 201, 106, 0.3); border-radius: 14px;
+  padding: 18px 22px; margin-bottom: 18px;
+  display: grid; grid-template-columns: auto 1fr; gap: 16px 28px; align-items: center;
+}
+.wc-dash-hero { display: flex; align-items: center; gap: 14px; }
+.wc-dash-pct { font-size: 46px; font-weight: 800; color: var(--gold-bright); line-height: 1; }
+.wc-dash-cap { font-size: 13px; color: var(--text); line-height: 1.5; }
+.wc-dash-cap span { color: #9b9088; font-size: 11.5px; font-family: var(--mono); }
+.wc-dash-stats { display: flex; gap: 28px; }
+.wc-dash-stats > div { display: flex; flex-direction: column; gap: 2px; }
+.wc-dash-stats b { font-size: 22px; color: var(--text); font-family: var(--mono); }
+.wc-dash-stats span { font-size: 11px; color: #9b9088; }
+.wc-dash-note { grid-column: 1 / -1; margin: 0; font-size: 11px; color: #9b9088; line-height: 1.6; }

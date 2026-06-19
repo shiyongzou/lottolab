@@ -21,6 +21,7 @@ import re
 import sys
 import unicodedata
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -150,7 +151,31 @@ def expand_dates(arg):
     return arg
 
 
-def build_match(ev, name2code, elo):
+SUMMARY_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary?event={}"
+
+
+def fetch_odds(event_id):
+    """拉单场 summary，取首个 provider 的赔率 → 市场胜平负概率 + 预期总进球"""
+    try:
+        s = json.loads(http_get(SUMMARY_URL.format(event_id), timeout=15))
+        odds = s.get("odds") or []
+        if not odds:
+            return None
+        o = odds[0]
+        return {
+            "market": wc_model.market_probs(
+                o.get("homeTeamOdds", {}).get("moneyLine"),
+                o.get("drawOdds", {}).get("moneyLine"),
+                o.get("awayTeamOdds", {}).get("moneyLine"),
+            ),
+            "overUnder": o.get("overUnder"),
+            "provider": (o.get("provider") or {}).get("name"),
+        }
+    except Exception:
+        return None
+
+
+def build_match(ev, name2code, elo, odds_data=None):
     comp = ev["competitions"][0]
     cs = comp["competitors"]
     home_c = next(c for c in cs if c["homeAway"] == "home")
@@ -181,8 +206,14 @@ def build_match(ev, name2code, elo):
 
     # 实力数据齐全才预测；否则诚实留空（不硬编、不瞎猜）
     if home["elo"] and away["elo"]:
-        match["pred"] = wc_model.predict(home["elo"], away["elo"], match["host"])
+        od = (odds_data or {}).get(ev["id"]) or {}
+        match["pred"] = wc_model.predict(
+            home["elo"], away["elo"], match["host"],
+            market=od.get("market"), over_under=od.get("overUnder"),
+        )
         match["predLockElo"] = {"home": home["elo"], "away": away["elo"]}
+        if od.get("provider"):
+            match["oddsProvider"] = od["provider"]
 
     # 比分：开赛后填真实结果
     sh, sa = parse_score(home_c), parse_score(away_c)
@@ -213,7 +244,21 @@ def main():
         print(f"[世界杯] {dates} 无赛事，保留原数据")
         return
 
-    matches = [build_match(ev, name2code, elo) for ev in events]
+    # 并发拉每场赔率（仅对双方实力可解析的场次；淘汰赛 TBD 跳过）
+    need = []
+    for ev in events:
+        cs = ev["competitions"][0]["competitors"]
+        if all(resolve(c["team"].get("displayName", ""), name2code, elo) for c in cs):
+            need.append(ev["id"])
+    odds_data = {}
+    if need:
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            for eid, od in zip(need, ex.map(fetch_odds, need)):
+                if od:
+                    odds_data[eid] = od
+        print(f"[世界杯] 拉取赔率 {len(odds_data)}/{len(need)} 场")
+
+    matches = [build_match(ev, name2code, elo, odds_data) for ev in events]
     matches.sort(key=lambda m: m["date"])
 
     teams = {}
@@ -227,8 +272,8 @@ def main():
         "meta": {
             "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "dates": dates,
-            "source": "赛程/比分:ESPN · 实力:World Football Elo(eloratings.net)",
-            "model": "双泊松确定性模型（Elo 驱动，零随机）",
+            "source": "赛程/比分/赔率:ESPN · 实力:World Football Elo(eloratings.net)",
+            "model": "Elo × 市场赔率 多维确定性融合（双泊松，零随机）",
         },
         "teams": teams,
         "matches": matches,
