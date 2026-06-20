@@ -180,6 +180,33 @@ def reply_day(token, wc, chat, month, day, title):
         send(token, chat, fmt_day(wc, f"{month:02d}-{day:02d}", title))  # 截图失败回落文字
 
 
+def get_photo(token, file_id):
+    """下载 TG 图片到本地，返回路径"""
+    r = api(token, "getFile", file_id=file_id)
+    fp = (r.get("result") or {}).get("file_path")
+    if not fp:
+        return None
+    path = "/tmp/wc_in.jpg"
+    try:
+        urllib.request.urlretrieve(f"https://api.telegram.org/file/bot{token}/{fp}", path)
+        return path
+    except Exception:
+        return None
+
+
+def handle_photo(token, wc, chat, photos, caption):
+    """用户发图 → 下载 → 交给 claude 看图分析"""
+    api(token, "sendChatAction", chat_id=chat, action="typing")
+    path = get_photo(token, photos[-1]["file_id"])
+    if not path:
+        send(token, chat, "图片没收到，再发一次试试～")
+        return
+    prompt = (f"用户在 Telegram 发来一张图片，本地路径：{path}。请你用 Read 工具看这张图再回应。"
+              + (f"用户附言：{caption}。" if caption else "")
+              + "用中文简洁口语回答；若图里是足球比分/赔率/赛事截图，结合你的世界杯预测数据帮他分析。")
+    send(token, chat, ask_claude(prompt, wc))
+
+
 def handle(token, wc, chat, text, reply=""):
     t = text.strip()
     now = datetime.now(CN)
@@ -220,7 +247,10 @@ def main():
             msg = u.get("message") or {}
             text, chat = msg.get("text", ""), msg.get("chat", {}).get("id")
             reply = (msg.get("reply_to_message") or {}).get("text", "")
-            if text and chat:
+            photos = msg.get("photo")
+            if photos and chat:
+                handle_photo(token, wc, chat, photos, msg.get("caption", ""))
+            elif text and chat:
                 handle(token, wc, chat, text, reply)
         OFF.write_text(str(offset))
 
