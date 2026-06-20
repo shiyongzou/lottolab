@@ -123,7 +123,7 @@ def ask_claude(text, wc, chat=None, hist_text=None):
     prompt = text
     if chat and CHAT_HIST.get(chat):
         recent = "\n".join(f"用户：{q}\n你：{a}" for q, a in CHAT_HIST[chat][-3:])
-        prompt = f"【最近对话，供理解上下文，用户可能在追问/用"那/这场"等指代】\n{recent}\n\n【用户现在说】\n{text}"
+        prompt = f"【最近对话，供理解上下文，用户可能在追问/用「那/这场」等指代】\n{recent}\n\n【用户现在说】\n{text}"
     try:
         r = subprocess.run(
             ["claude", "-p", prompt, "--append-system-prompt", sys, "--model", "sonnet"],
