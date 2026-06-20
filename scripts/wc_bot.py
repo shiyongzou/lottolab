@@ -191,6 +191,46 @@ def reply_day(token, wc, chat, month, day, title):
         send(token, chat, fmt_day(wc, f"{month:02d}-{day:02d}", title))  # 截图失败回落文字
 
 
+TICKETS_FILE = ROOT / "data" / "wc_tickets.txt"
+WATCH_FILE = ROOT / "data" / "wc_ticket_watch.json"
+TICKET_STATE = ROOT / "data" / "wc_ticket_state.json"
+
+
+def setup_track(token, wc, chat, path):
+    """用户发票图+「跟单」→ 识别票面+涉及场次 → 写监控列表，开始跟单"""
+    prompt = (f"用 Read 工具看这张彩票图 {path}。输出两部分：\n"
+              "① 用几行简述每张票的玩法和每场选项；\n"
+              "② 最后单独一行，以「场次=」开头，列出票里涉及的所有比赛，"
+              "每场格式『中文主队|中文客队』，多场用分号 ; 分隔（用最常见的中文队名）。")
+    ans = ask_claude(prompt, wc)
+    TICKETS_FILE.write_text(ans)
+    watch = {}
+    m = re.search(r"场次[=＝](.+)", ans)
+    if m:
+        for pair in m.group(1).split(";"):
+            if "|" not in pair and "｜" not in pair:
+                continue
+            parts = re.split(r"[|｜]", pair)
+            hn, an = parts[0].strip(), parts[1].strip()
+            for mt in wc.get("matches", []):
+                if not mt.get("pred") or mt.get("score"):
+                    continue
+                hname, aname = mt["home"]["name"], mt["away"]["name"]
+                if (hn in hname or hname in hn) and (an in aname or aname in an):
+                    watch[mt["id"]] = f"{hname} vs {aname}"
+                    break
+    WATCH_FILE.write_text(json.dumps(watch, ensure_ascii=False))
+    try:
+        TICKET_STATE.unlink()
+    except FileNotFoundError:
+        pass
+    if watch:
+        send(token, chat, f"✅ 已开始跟单 {len(watch)} 场：\n" + "\n".join(watch.values())
+             + "\n\n半场结束 / 进球 / 完场都会自动推你对照中没中。")
+    else:
+        send(token, chat, "看了票，但没匹配到可跟单的未开赛场次（可能已开赛或队名没对上）。\n" + ans[-300:])
+
+
 def get_photo(token, file_id):
     """下载 TG 图片到本地，返回路径"""
     r = api(token, "getFile", file_id=file_id)
@@ -211,6 +251,9 @@ def handle_photo(token, wc, chat, photos, caption):
     path = get_photo(token, photos[-1]["file_id"])
     if not path:
         send(token, chat, "图片没收到，再发一次试试～")
+        return
+    if "跟单" in (caption or ""):
+        setup_track(token, wc, chat, path)
         return
     prompt = (f"用户在 Telegram 发来一张图片，本地路径：{path}。请用 Read 工具看图再回应。"
               + (f"用户附言：{caption}。" if caption else "")
