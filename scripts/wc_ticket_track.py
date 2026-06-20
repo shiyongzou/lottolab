@@ -15,6 +15,7 @@ ROOT = Path(__file__).parent.parent
 CFG = ROOT / "data" / "tg_config.json"
 TICKETS = ROOT / "data" / "wc_tickets.txt"
 STATE = ROOT / "data" / "wc_ticket_state.json"
+BROWSE = Path.home() / ".claude" / "skills" / "gstack" / "browse" / "dist" / "browse"
 SB = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=20260611-20260719&limit=400"
 WATCH_FILE = ROOT / "data" / "wc_ticket_watch.json"
 
@@ -55,6 +56,46 @@ def ask(prompt):
         return (r.stdout or "").strip()
     except Exception:
         return ""
+
+
+def send_photo(token, chat, img, caption):
+    r = subprocess.run([
+        "curl", "-sS", "--max-time", "40",
+        f"https://api.telegram.org/bot{token}/sendPhoto",
+        "-F", f"chat_id={chat}", "-F", f"photo=@{img}", "-F", f"caption={caption}",
+    ], capture_output=True, text=True, timeout=60)
+    try:
+        return json.loads(r.stdout).get("ok", False)
+    except json.JSONDecodeError:
+        return False
+
+
+def finalize(token, chat, tickets, results):
+    """4场全完场：claude 对照 → 数据 → 渲染对照图 → 发图；失败回落文字"""
+    import re
+    rsum = "; ".join(f"{nm} {r['score']}(半{r.get('ht', '?')})" for nm, r in results.items())
+    prompt = (f"{tickets}\n\n四场最终结果：{rsum}\n"
+              "对照每张票每一腿，只输出 JSON（不要别的文字）：\n"
+              '{"summary":[{"team":"队A vs 队B","score":"x-y","ht":"a-b"}],'
+              '"tickets":[{"n":"票A·总进球·¥20","legs":[{"g":"队A vs 队B","pick":"我选","actual":"实际","hit":true}],"allHit":false,"broken":["断点队名"]}]}\n'
+              "总进球=全场总进球；半全场=半场胜平负+全场胜平负（主队赢=胜）。每张票列全4腿。")
+    raw = ask(prompt)
+    m = re.search(r"\{.*\}", raw, re.S)
+    if m:
+        try:
+            data = json.loads(m.group(0))
+            dpath = "/tmp/ticket_data.json"
+            Path(dpath).write_text(json.dumps(data, ensure_ascii=False))
+            subprocess.run(["node", str(ROOT / "scripts" / "gen_ticket_img.js"), dpath],
+                           cwd=str(ROOT), capture_output=True, timeout=30)
+            subprocess.run([str(BROWSE), "viewport", "760x1600", "--scale", "2"], capture_output=True, timeout=20)
+            subprocess.run([str(BROWSE), "load-html", "/tmp/ticket.html"], capture_output=True, timeout=30)
+            subprocess.run([str(BROWSE), "screenshot", "/tmp/ticket.png"], capture_output=True, timeout=30)
+            if Path("/tmp/ticket.png").exists() and send_photo(token, chat, "/tmp/ticket.png", "🏁 你的票 · 四场全部完场对照"):
+                return
+        except Exception:
+            pass
+    tg(token, chat, "🏁 四场全部完场，对照结果：\n" + raw[:1500])
 
 
 def main():
@@ -114,6 +155,12 @@ def main():
             tg(token, chat, f"🏁 {nm} · 完场 {score}（半场 {ht}）\n\n{msg}")
 
         new[eid] = cur
+
+    # 全部场次完场 → 自动生成整票对照图（只发一次）
+    if WATCH and all(new.get(e, {}).get("state") == "post" for e in WATCH) and not state.get("_done"):
+        results = {nm: {"score": new[e].get("score", ""), "ht": new[e].get("ht", "?")} for e, nm in WATCH.items()}
+        finalize(token, chat, tickets, results)
+        new["_done"] = True
 
     tmp = STATE.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(new))
