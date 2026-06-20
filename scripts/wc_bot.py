@@ -191,44 +191,53 @@ def reply_day(token, wc, chat, month, day, title):
         send(token, chat, fmt_day(wc, f"{month:02d}-{day:02d}", title))  # 截图失败回落文字
 
 
-TICKETS_FILE = ROOT / "data" / "wc_tickets.txt"
-WATCH_FILE = ROOT / "data" / "wc_ticket_watch.json"
+TJ_FILE = ROOT / "data" / "wc_tickets.json"
 TICKET_STATE = ROOT / "data" / "wc_ticket_state.json"
 
 
 def setup_track(token, wc, chat, path):
-    """用户发票图+「跟单」→ 识别票面+涉及场次 → 写监控列表，开始跟单"""
-    prompt = (f"用 Read 工具看这张彩票图 {path}。输出两部分：\n"
-              "① 用几行简述每张票的玩法和每场选项；\n"
-              "② 最后单独一行，以「场次=」开头，列出票里涉及的所有比赛，"
-              "每场格式『中文主队|中文客队』，多场用分号 ; 分隔（用最常见的中文队名）。")
+    """用户发票图+「跟单」→ claude 识别票面为结构化 JSON → 匹配场次 → 开始实时跟单"""
+    prompt = (f"用 Read 工具看这张彩票图 {path}。只输出 JSON（不要别的文字）：\n"
+              '{"tickets":[{"n":"票名·玩法·¥金额","t":"total或ftht",'
+              '"legs":[{"home":"中文主队","away":"中文客队","pick":总进球数字或半全场2字}]}]}\n'
+              "总进球玩法 t=total，pick 是数字（如 3）；半全场玩法 t=ftht，pick 是 2 字"
+              "（如 胜胜/平胜/负胜，胜=主队赢，第1字半场、第2字全场）。每张票列全所有场次。")
     ans = ask_claude(prompt, wc)
-    TICKETS_FILE.write_text(ans)
-    watch = {}
-    m = re.search(r"场次[=＝](.+)", ans)
-    if m:
-        for pair in m.group(1).split(";"):
-            if "|" not in pair and "｜" not in pair:
-                continue
-            parts = re.split(r"[|｜]", pair)
-            hn, an = parts[0].strip(), parts[1].strip()
+    m = re.search(r"\{.*\}", ans, re.S)
+    if not m:
+        send(token, chat, "没识别出票面结构，换张清楚点的图再发～")
+        return
+    try:
+        raw = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        send(token, chat, "票面识别格式有点问题，再发一次试试～")
+        return
+    events, tickets = {}, []
+    for tk in raw.get("tickets", []):
+        legs = []
+        for leg in tk.get("legs", []):
+            hn, an = str(leg.get("home", "")), str(leg.get("away", ""))
             for mt in wc.get("matches", []):
                 if not mt.get("pred") or mt.get("score"):
                     continue
                 hname, aname = mt["home"]["name"], mt["away"]["name"]
-                if (hn in hname or hname in hn) and (an in aname or aname in an):
-                    watch[mt["id"]] = f"{hname} vs {aname}"
+                if hn and an and (hn in hname or hname in hn) and (an in aname or aname in an):
+                    events[mt["id"]] = f"{hname} vs {aname}"
+                    legs.append({"e": mt["id"], "pick": leg["pick"]})
                     break
-    WATCH_FILE.write_text(json.dumps(watch, ensure_ascii=False))
+        if legs:
+            tickets.append({"n": tk.get("n", "票"), "t": tk.get("t", "total"), "legs": legs})
+    if not events:
+        send(token, chat, "看了票，但没匹配到未开赛的场次（可能已开赛或对阵没对上）。")
+        return
+    TJ_FILE.write_text(json.dumps({"events": events, "tickets": tickets}, ensure_ascii=False))
     try:
         TICKET_STATE.unlink()
     except FileNotFoundError:
         pass
-    if watch:
-        send(token, chat, f"✅ 已开始跟单 {len(watch)} 场：\n" + "\n".join(watch.values())
-             + "\n\n半场结束 / 进球 / 完场都会自动推你对照中没中。")
-    else:
-        send(token, chat, "看了票，但没匹配到可跟单的未开赛场次（可能已开赛或队名没对上）。\n" + ans[-300:])
+    send(token, chat, f"✅ 已开始实时跟单 {len(events)} 场、{len(tickets)} 张票：\n"
+         + "\n".join(events.values())
+         + "\n\n每次比分更新都会对照、检测哪些票断了，自动推进度图给你。")
 
 
 def get_photo(token, file_id):

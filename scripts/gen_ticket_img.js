@@ -7,11 +7,19 @@ const summary = (data.summary || []).map(v =>
   `<span class="m">${v.team} <b>${v.score}</b>${v.ht ? `<small>半${v.ht}</small>` : ""}</span>`).join("");
 
 const cards = (data.tickets || []).map(tk => {
-  const rows = tk.legs.map(l => `<tr class="${l.hit ? 'ok' : 'no'}">
-    <td class="g">${l.g}</td><td>${l.pick}</td><td>${l.actual}</td>
-    <td class="r">${l.hit ? '✅' : '❌ 错在这'}</td></tr>`).join("");
-  const res = tk.allHit ? '✅ 全中！' : '❌ 未中（断在：' + (tk.broken || []).join('、') + '）';
-  return `<div class="tk"><div class="th ${tk.allHit ? 'win' : 'lose'}">${tk.n}<span class="res">${res}</span></div>
+  const rows = tk.legs.map(l => {
+    const s = l.status || (l.hit ? "hit" : "miss");
+    const cls = s === "hit" ? "ok" : s === "miss" ? "no" : "pend";
+    const ic = s === "hit" ? "✅" : s === "miss" ? "❌ 错在这" : "⏳ 待定";
+    return `<tr class="${cls}"><td class="g">${l.g}</td><td>${l.pick}</td><td>${l.actual || "—"}</td><td class="r">${ic}</td></tr>`;
+  }).join("");
+  const miss = tk.legs.filter(l => (l.status || (l.hit ? "hit" : "miss")) === "miss");
+  const pend = tk.legs.filter(l => l.status === "pending");
+  const cl = miss.length ? "lose" : pend.length ? "prog" : "win";
+  const res = miss.length ? '❌ 已挂（断在：' + miss.map(l => l.g.split(" ")[0]).join('、') + '）'
+    : pend.length ? '⏳ 进行中（已中 ' + (tk.legs.length - pend.length) + '/' + tk.legs.length + '）'
+    : '✅ 全中！';
+  return `<div class="tk"><div class="th ${cl}">${tk.n}<span class="res">${res}</span></div>
     <table><tr class="hd"><th>场次</th><th>我选</th><th>实际</th><th>结果</th></tr>${rows}</table></div>`;
 }).join("");
 
@@ -35,7 +43,7 @@ tr:not(.hd){border-bottom:1px solid rgba(255,255,255,.04)}
 .foot{text-align:center;font-size:11px;color:#7a7068;margin-top:12px;line-height:1.6}
 </style></head><body>
 <div class="title">🏁 跟单对照 · 全部完场</div>
-<div class="sub">每张票每场每腿逐一对照，标出错在哪一步</div>
+<div class="sub">${data.note || "每张票每场每腿逐一对照，标出错在哪一步"}</div>
 <div class="sums">${summary}</div>
 ${cards}
 <div class="foot">总进球=全场总进球；半全场=半场结果+全场结果。每张票 4 场全中才中奖。</div>
