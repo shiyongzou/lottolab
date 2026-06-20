@@ -95,7 +95,10 @@ CLAUDE_SYS = (
     "优先直接用这些数据，简洁口语秒答——别去读文件、别纠结过程。"
     "只有用户明确问实时信息（伤病/阵容/新闻）时才联网查。"
     "诚实：预测是概率不是保证。绝不修改文件、不跑命令。回答简短，适合手机，别超 10 行。"
+    "重要：紧扣用户当前这句话回答，有上下文就顺着聊；别答非所问、别堆无关数据。"
 )
+
+CHAT_HIST = {}
 
 
 def build_context(wc):
@@ -114,18 +117,26 @@ def build_context(wc):
     return "\n".join(rows)
 
 
-def ask_claude(text, wc):
-    """自然语言交给本机 claude（预喂预测数据 + 快模型 sonnet，加速）"""
+def ask_claude(text, wc, chat=None, hist_text=None):
+    """自然语言交给本机 claude（预喂数据 + 多轮记忆 + sonnet）"""
     sys = CLAUDE_SYS + "\n\n【预测数据】\n" + build_context(wc)
+    prompt = text
+    if chat and CHAT_HIST.get(chat):
+        recent = "\n".join(f"用户：{q}\n你：{a}" for q, a in CHAT_HIST[chat][-3:])
+        prompt = f"【最近对话，供理解上下文，用户可能在追问/用"那/这场"等指代】\n{recent}\n\n【用户现在说】\n{text}"
     try:
         r = subprocess.run(
-            ["claude", "-p", text, "--append-system-prompt", sys, "--model", "sonnet"],
+            ["claude", "-p", prompt, "--append-system-prompt", sys, "--model", "sonnet"],
             cwd=str(ROOT), capture_output=True, text=True, timeout=150)
-        return (r.stdout or "").strip() or "（没拿到回复，换个说法再问问）"
+        ans = (r.stdout or "").strip() or "（没拿到回复，换个说法再问问）"
     except subprocess.TimeoutExpired:
-        return "（这个有点复杂查得久，稍后再试或问简单点～）"
+        ans = "（这个有点复杂查得久，稍后再试或问简单点～）"
     except Exception as e:
-        return f"（出错了：{e}）"
+        ans = f"（出错了：{e}）"
+    if chat:
+        CHAT_HIST.setdefault(chat, []).append((hist_text or text, ans))
+        CHAT_HIST[chat] = CHAT_HIST[chat][-5:]
+    return ans
 
 
 BROWSE = Path.home() / ".claude" / "skills" / "gstack" / "browse" / "dist" / "browse"
@@ -201,10 +212,12 @@ def handle_photo(token, wc, chat, photos, caption):
     if not path:
         send(token, chat, "图片没收到，再发一次试试～")
         return
-    prompt = (f"用户在 Telegram 发来一张图片，本地路径：{path}。请你用 Read 工具看这张图再回应。"
+    prompt = (f"用户在 Telegram 发来一张图片，本地路径：{path}。请用 Read 工具看图再回应。"
               + (f"用户附言：{caption}。" if caption else "")
-              + "用中文简洁口语回答；若图里是足球比分/赔率/赛事截图，结合你的世界杯预测数据帮他分析。")
-    send(token, chat, ask_claude(prompt, wc))
+              + "若是彩票/竞彩票：识别买的场次、玩法(总进球数/胜平负/半全场等)和每场选项；"
+              + "再对照下方【预测数据】里标了'实际'比分的真实结果——已结束的逐场说中没中，"
+              + "没标实际比分的说明还没开踢、结束后再帮对。用中文简洁口语回答。")
+    send(token, chat, ask_claude(prompt, wc, chat, hist_text="[用户发来一张彩票/比赛图片]" + (caption or "")))
 
 
 def handle(token, wc, chat, text, reply=""):
@@ -228,7 +241,7 @@ def handle(token, wc, chat, text, reply=""):
     # 非指令 → 自然语言，交给 Claude 理解（像和这个会话对话一样）
     api(token, "sendChatAction", chat_id=chat, action="typing")
     q = f"（用户正在回复你之前发的这条消息：\n「{reply}」）\n用户现在说：{t}" if reply else t
-    send(token, chat, ask_claude(q, wc))
+    send(token, chat, ask_claude(q, wc, chat))
 
 
 def main():
