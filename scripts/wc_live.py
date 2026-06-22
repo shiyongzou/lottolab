@@ -28,6 +28,16 @@ ZH = {
     "Croatia": "克罗地亚", "Uruguay": "乌拉圭", "Colombia": "哥伦比亚", "Switzerland": "瑞士",
 }
 
+# 从 wc_matches.js 补全所有参赛队中文名（覆盖全 48 强，避免回落英文）
+try:
+    _txt = (ROOT / "data" / "wc_matches.js").read_text()
+    _d = json.loads(_txt[_txt.index("{"):_txt.rindex("}") + 1])
+    for _t in _d.get("teams", {}).values():
+        if _t.get("enName") and _t.get("name") and _t["enName"] != _t["name"]:
+            ZH.setdefault(_t["enName"], _t["name"])
+except Exception:
+    pass
+
 
 def load_cfg():
     try:
