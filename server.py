@@ -36,10 +36,6 @@ PIPELINES = {
         ("更新全量档案", ["fetch_data.py", "--full"], 180),
         ("滚动回测 300 期（约 2-3 分钟）", ["scripts/backtest.py", "300", "6"], 600),
     ],
-    "wc": [
-        ("世界杯赛程+比分+预测对照", ["fetch_wc.py"], 120),
-        ("推送预测到 Telegram", ["scripts/wc_notify.py"], 60),
-    ],
 }
 
 
@@ -118,7 +114,7 @@ class Handler(SimpleHTTPRequestHandler):
             tmp.write_text(json.dumps(data, ensure_ascii=False))
             os.replace(tmp, WALLET)
             return self._json({"ok": True})
-        task = {"/api/refresh": "refresh", "/api/backtest": "backtest", "/api/wc": "wc"}.get(self.path)
+        task = {"/api/refresh": "refresh", "/api/backtest": "backtest"}.get(self.path)
         if task:
             with STATE_LOCK:
                 if STATE["running"]:

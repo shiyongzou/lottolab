@@ -3,7 +3,6 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 const DATA = window.LOTTO_DATA || { meta: {}, ssq: [], dlt: [] };
 const FULL = window.LOTTO_FULL || null;
-const WC = window.WC_DATA || { meta: {}, teams: {}, matches: [] };
 const state = { game: 'ssq', strategy: 'random', tickets: [], scope: '150', inferWindow: '150' };
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -432,7 +431,6 @@ function autoRefreshTick() {
 
 // 定时任务/监视器在后台改了数据文件时，开着的页面通过 Last-Modified 感知并自动重载
 let dataVersion = null;
-let wcVersion = null;
 async function versionTick() {
   if (!location.protocol.startsWith('http')) return;
   try {
@@ -444,14 +442,6 @@ async function versionTick() {
       return;
     }
     if (v) dataVersion = v;
-    const rw = await fetch('/data/wc_matches.js', { method: 'HEAD', cache: 'no-store' });
-    const vw = rw.headers.get('Last-Modified');
-    if (wcVersion && vw && vw !== wcVersion) {
-      toast('世界杯数据已更新，页面自动刷新…');
-      setTimeout(() => location.reload(), 1000);
-      return;
-    }
-    if (vw) wcVersion = vw;
   } catch (e) {}
 }
 
@@ -1224,10 +1214,8 @@ function detectServer() {
       r.classList.remove('hidden');
       r.addEventListener('click', () => startTask('/api/refresh', r, '⟳ 计算中…'));
       renderBacktestActions();
-      renderWorldCup();
       syncWalletFromServer();
       setTimeout(autoRefreshTick, 5000);
-      setTimeout(wcMaybeRefresh, 8000);
       fetch('/api/status')
         .then((res) => res.json())
         .then((st) => {
@@ -1482,244 +1470,9 @@ function renderStaleBanner() {
   };
 }
 
-/* ---------- 世界杯比分预测（双泊松确定性模型） ---------- */
-
-function wcPct(x) { return Math.round(x * 100) + '%'; }
-
-function wcKickoff(iso) {
-  try {
-    return new Date(iso).toLocaleString('zh-CN', {
-      timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric',
-      hour: '2-digit', minute: '2-digit', hour12: false,
-    }) + ' 北京';
-  } catch (e) { return iso; }
-}
-
-function wcMatchCard(m) {
-  const h = m.home, a = m.away;
-  const head = `
-    <div class="wc-head">
-      <div class="wc-team wc-team-h">
-        <span class="wc-name">${h.name}</span>
-        <span class="wc-elo">Elo ${h.elo != null ? h.elo : '—'}</span>
-      </div>
-      <div class="wc-vs">
-        ${m.score ? `<span class="wc-realscore">${m.score.home} : ${m.score.away}</span>`
-                  : '<span class="wc-vs-x">VS</span>'}
-        <span class="wc-kick">${m.score ? (m.result && m.result.final ? '已结束' : '进行中') : wcKickoff(m.date)}</span>
-      </div>
-      <div class="wc-team wc-team-a">
-        <span class="wc-name">${a.name}</span>
-        <span class="wc-elo">Elo ${a.elo != null ? a.elo : '—'}</span>
-      </div>
-    </div>`;
-
-  if (!m.pred) {
-    return `<div class="wc-card">${head}<div class="wc-nopred">缺少该场球队的实力数据，按本站原则不臆测预测。</div></div>`;
-  }
-
-  const p = m.pred, lk = p.likely, prob = p.probs;
-  const headline = `
-    <div class="wc-headline">
-      <div class="wc-likely">
-        <span class="wc-likely-label">最可能比分</span>
-        <span class="wc-likely-score">${lk[0]} - ${lk[1]}</span>
-        <span class="wc-likely-p">${(p.topScores[0][2] * 100).toFixed(1)}%</span>
-      </div>
-      ${p.boldScore
-        ? `<div class="wc-bold"><span class="wc-bold-label">🔥 大胆剧本</span><span class="wc-bold-score">${p.boldScore[0]} - ${p.boldScore[1]}</span></div>`
-        : `<div class="wc-exp"><span>期望进球 λ</span><b>${p.expScore[0]} - ${p.expScore[1]}</b></div>`}
-    </div>`;
-
-  const wdl = `
-    <div class="wc-section-label">胜 / 平 / 负 概率</div>
-    <div class="wc-wdl">
-      <div class="wc-wdl-seg wc-home" style="width:${Math.max(prob.home * 100, 8)}%" title="${h.name}胜">${wcPct(prob.home)}</div>
-      <div class="wc-wdl-seg wc-draw" style="width:${Math.max(prob.draw * 100, 8)}%" title="平局">${wcPct(prob.draw)}</div>
-      <div class="wc-wdl-seg wc-away" style="width:${Math.max(prob.away * 100, 8)}%" title="${a.name}胜">${wcPct(prob.away)}</div>
-    </div>`;
-
-  // 多维对比：Elo 模型 / 市场赔率 / 融合，以及模型-市场背离信号
-  let compare = '';
-  if (p.marketProbs) {
-    const cmpRow = (label, pr, cls) =>
-      `<div class="wc-cmp-row"><span class="wc-cmp-tag ${cls}">${label}</span>`
-      + `<span>${Math.round(pr.home * 100)}</span><span>${Math.round(pr.draw * 100)}</span><span>${Math.round(pr.away * 100)}</span></div>`;
-    compare = `
-      <div class="wc-section-label">胜平负对比（%）：模型 vs 市场 vs 融合${m.oddsProvider ? ' · 赔率源 ' + m.oddsProvider : ''}</div>
-      <div class="wc-cmp">
-        <div class="wc-cmp-row wc-cmp-head"><span></span><span>主</span><span>平</span><span>客</span></div>
-        ${cmpRow('Elo 实力', p.eloProbs, '')}
-        ${cmpRow('市场赔率', p.marketProbs, 'mkt')}
-        ${cmpRow('融合', p.probs, 'fuse')}
-      </div>
-      ${p.divergenceFlag
-        ? `<div class="wc-diverge">⚠ 模型与市场分歧 ${Math.round(p.divergence * 100)}%——市场掌握的信息（伤病/状态/动机）与纯实力评估背离较大，该场更难测</div>`
-        : ''}`;
-  }
-
-  const maxP = p.topScores[0][2];
-  const tops = `
-    <div class="wc-section-label">最可能的几种比分</div>
-    <div class="wc-tops">
-      ${p.topScores.map(([i, j, pr]) => `
-        <div class="wc-score-row">
-          <span class="wc-score">${i}-${j}</span>
-          <div class="wc-bar"><div style="width:${(pr / maxP * 100).toFixed(0)}%"></div></div>
-          <span class="wc-pct">${(pr * 100).toFixed(1)}%</span>
-        </div>`).join('')}
-    </div>`;
-
-  const cells = p.matrix.map((row, i) => row.map((pr, j) => {
-    const hot = i === lk[0] && j === lk[1];
-    const op = Math.min(1, pr * 7).toFixed(3);
-    return `<div class="wc-cell${hot ? ' wc-cell-hot' : ''}" style="background:rgba(232,69,60,${op})" title="${i}-${j}  ${(pr * 100).toFixed(1)}%">${pr >= 0.05 ? (i + '-' + j) : ''}</div>`;
-  }).join('')).join('');
-  const heat = `
-    <div class="wc-section-label">比分概率热力图（行：${h.name}进球↓ · 列：${a.name}进球→）</div>
-    <div class="wc-heat">${cells}</div>`;
-
-  const extra = `
-    <div class="wc-extra">
-      <span>双方均进球 <b>${wcPct(p.btts)}</b></span>
-      <span>大 2.5 球 <b>${wcPct(p.over25)}</b></span>
-    </div>`;
-
-  let verdict = '';
-  if (m.result) {
-    const r = m.result;
-    const oc = { home: h.name + '胜', draw: '平局', away: a.name + '胜' };
-    verdict = `
-      <div class="wc-verdict">
-        <span class="wc-badge ${r.outcomeHit ? 'wc-ok' : 'wc-no'}">方向${r.outcomeHit ? '命中' : '未中'}：预测${oc[r.outcomePred]} · 实际${oc[r.outcomeReal]}</span>
-        <span class="wc-badge ${r.exactHit ? 'wc-ok' : 'wc-no'}">精确比分${r.exactHit ? '命中' : '未中'}</span>
-      </div>`;
-  }
-
-  return `<div class="wc-card${m.host ? ' wc-host' : ''}">${head}`
-    + `${m.host ? '<div class="wc-hostflag">🏟 主办国主场（已计入 Elo 修正）</div>' : ''}`
-    + `${headline}${wdl}${compare}${tops}${heat}${extra}${verdict}</div>`;
-}
-
-function wcDayKey(date) {
-  return new Date(date).toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
-}
-
-function wcDataAgeMin() {
-  if (!WC.meta || !WC.meta.generated) return Infinity;
-  return (Date.now() - new Date(WC.meta.generated).getTime()) / 60000;
-}
-
-function wcHasLive() {
-  return (WC.matches || []).some((m) => m.score && !(m.result && m.result.final));
-}
-
-function renderWorldCup() {
-  const box = $('#wcBox');
-  if (!box) return;
-  const ms = WC.matches || [];
-  const refreshBtn = serverMode ? '<button id="wcRefreshBtn" class="wc-refresh-btn">↻ 刷新赛程·比分</button>' : '';
-  const gen = WC.meta.generated ? WC.meta.generated.slice(0, 16).replace('T', ' ') : '—';
-  const intro = `
-    <div class="wc-intro">
-      <div class="wc-intro-top">
-        <h2 class="wc-title">⚽ 世界杯比分预测 · 双泊松模型</h2>
-        ${refreshBtn}
-      </div>
-      <p>赛程与比分来自 <b>ESPN</b>，球队实力用 <b>World Football Elo</b>（eloratings.net）；开赛前按当时 Elo 锁定预测，开赛后用真实比分自动对照。淘汰赛对阵未定（TBD）时按本站原则留空不臆测。</p>
-      <p class="wc-disclaimer">模型是 Elo 驱动的<b>确定性</b>双泊松（零随机，同输入同输出）。足球比分高度不确定，这里给的是<b>概率分布，不是结果保证</b>——和本站对彩票的态度一致：诚实、可复现、不吹能算准。</p>
-    </div>`;
-  if (!ms.length) {
-    box.innerHTML = intro + '<div class="wc-empty">暂无赛事数据。运行 <code>python3 fetch_wc.py</code> 拉取赛程后即可看到预测。</div>';
-    wcBindRefresh();
-    return;
-  }
-
-  // 按北京日期分组（matches 已按 date 升序，Map 保留插入顺序）
-  const groups = new Map();
-  for (const m of ms) {
-    const key = wcDayKey(m.date);
-    if (!groups.has(key)) {
-      groups.set(key, {
-        label: new Date(m.date).toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', weekday: 'short' }),
-        list: [],
-      });
-    }
-    groups.get(key).list.push(m);
-  }
-  const todayKey = wcDayKey(cnNow());
-
-  let html = '';
-  let overHit = 0, overDone = 0, overExact = 0, mktHit = 0, mktTotal = 0, firstFutureShown = false;
-  for (const [key, g] of groups) {
-    const list = g.list;
-    const done = list.filter((m) => m.result);
-    const live = list.filter((m) => m.score && !(m.result && m.result.final));
-    const hit = done.filter((m) => m.result.outcomeHit).length;
-    overHit += hit; overDone += done.length;
-    overExact += done.filter((m) => m.result.exactHit).length;
-    for (const m of done) {
-      if (m.pred && m.pred.marketProbs && m.score) {
-        mktTotal++;
-        const mk = m.pred.marketProbs;
-        const mkPick = mk.home >= mk.draw && mk.home >= mk.away ? 'home' : (mk.away >= mk.draw ? 'away' : 'draw');
-        const real = m.score.home > m.score.away ? 'home' : (m.score.home < m.score.away ? 'away' : 'draw');
-        if (mkPick === real) mktHit++;
-      }
-    }
-    const future = !list.some((m) => m.score);
-    const isToday = key === todayKey;
-    let open = isToday;
-    if (future && !firstFutureShown) { open = true; firstFutureShown = true; }
-    let badge;
-    if (live.length) badge = `<span class="wc-day-live">● 进行中 ${live.length}</span>`;
-    else if (done.length) badge = `方向命中 ${hit}/${done.length}`;
-    else badge = '待开赛';
-    const cards = list.map(wcMatchCard).join('');
-    html += `<details class="wc-day"${open ? ' open' : ''}>
-      <summary><span class="wc-day-date">${g.label}${isToday ? ' · 今天' : ''}</span><span class="wc-day-meta">${list.length} 场 · ${badge}</span></summary>
-      <div class="wc-grid">${cards}</div>
-    </details>`;
-  }
-  const dash = overDone
-    ? `<div class="wc-dash">
-         <div class="wc-dash-hero">
-           <div class="wc-dash-pct">${Math.round(overHit / overDone * 100)}%</div>
-           <div class="wc-dash-cap">融合模型 · 胜平负方向命中<br><span>${overHit} / ${overDone} 场已结束</span></div>
-         </div>
-         <div class="wc-dash-stats">
-           <div><b>${Math.round(overExact / overDone * 100)}%</b><span>精确比分命中 ${overExact}/${overDone}</span></div>
-           <div><b>${mktTotal ? Math.round(mktHit / mktTotal * 100) : '—'}%</b><span>市场赔率基准 ${mktHit}/${mktTotal}</span></div>
-         </div>
-         <p class="wc-dash-note">诚实记录：融合模型在已开赛场次的真实命中率，不代表未来。和本站对彩票的态度一样——结果原样摆出来，不挑不藏。</p>
-       </div>`
-    : '';
-  const foot = `<p class="wc-foot">数据更新：${gen} · 模型：${WC.meta.model || '双泊松'} · 仅供研究娱乐，不构成任何投注建议</p>`;
-  box.innerHTML = intro + dash + html + foot;
-  wcBindRefresh();
-}
-
-function wcBindRefresh() {
-  const btn = $('#wcRefreshBtn');
-  if (btn) btn.onclick = () => startTask('/api/wc', btn, '⟳ 更新赛程中…');
-}
-
-// 自动刷新：进入页面/定时检查，数据旧就后台拉一次（有比赛进行中时更勤快）
-function wcMaybeRefresh() {
-  if (!serverMode) return;
-  const threshold = wcHasLive() ? 3 : 30;
-  if (wcDataAgeMin() < threshold) return;
-  const last = Number(localStorage.getItem('lottolab_wc_try') || 0);
-  if (Date.now() - last < 3 * 60 * 1000) return;
-  localStorage.setItem('lottolab_wc_try', String(Date.now()));
-  const btn = $('#wcRefreshBtn') || $('#btnRefresh');
-  if (btn && !btn.disabled) startTask('/api/wc', btn, '⟳ 更新赛程中…');
-}
-
 function renderAll() {
   renderDataChip();
   renderStaleBanner();
-  renderWorldCup();
   renderHall();
   renderAnalysis();
   renderInfer();
@@ -1733,18 +1486,9 @@ function renderAll() {
 function init() {
   $('#gameSwitch').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-game]');
-    if (!btn) return;
-    $$('#gameSwitch button').forEach((b) => b.classList.toggle('active', b === btn));
-    if (btn.dataset.game === 'worldcup') {
-      // 世界杯：与双色球/大乐透同级，切到它时隐藏彩票 tab 区，只显示世界杯
-      document.body.classList.add('mode-worldcup');
-      renderWorldCup();
-      setTimeout(wcMaybeRefresh, 300);
-      return;
-    }
-    document.body.classList.remove('mode-worldcup');
-    if (btn.dataset.game === state.game) { document.body.className = 'game-' + state.game; return; }
+    if (!btn || btn.dataset.game === state.game) return;
     state.game = btn.dataset.game;
+    $$('#gameSwitch button').forEach((b) => b.classList.toggle('active', b === btn));
     document.body.className = 'game-' + state.game;
     state.tickets = [];
     renderAll();
@@ -1755,7 +1499,6 @@ function init() {
     if (!btn) return;
     $$('#tabs button').forEach((b) => b.classList.toggle('active', b === btn));
     $$('.tab-panel').forEach((p) => p.classList.toggle('active', p.id === 'tab-' + btn.dataset.tab));
-    if (btn.dataset.tab === 'worldcup') setTimeout(wcMaybeRefresh, 300);
   });
 
   $('#inferPills').addEventListener('click', (e) => {
@@ -1838,7 +1581,6 @@ function init() {
   detectServer();
   setInterval(autoRefreshTick, 60000);
   setInterval(renderStaleBanner, 60000);
-  setInterval(wcMaybeRefresh, 120000);
   versionTick();
   setInterval(versionTick, 120000);
 }
